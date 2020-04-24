@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+
+  
+  <title>resnet构建对抗样本 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="description" content="tensorflow构建对抗样本遇到的坑—-梯度问题在利用梯度生成对抗样本的方式中，其核心思想为： $$ X_{pert} &#x3D; X + epsilon \times sign(\nabla_x L(X,Y)) $$ 其中 epsilon为扰动系数（扰动浓度），一般值比较小；$sign（）$为符号函数，X为输入的样本，Y为对应标签，$L（X,Y）$则为loss函数。 建议在模型设计的时候就考虑到怎样">
+<meta property="og:type" content="article">
+<meta property="og:title" content="resnet构建对抗样本">
+<meta property="og:url" content="http://yoursite.com/2020/04/23/resnet%E6%9E%84%E5%BB%BA%E5%AF%B9%E6%8A%97%E6%A0%B7%E6%9C%AC/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="tensorflow构建对抗样本遇到的坑—-梯度问题在利用梯度生成对抗样本的方式中，其核心思想为： $$ X_{pert} &#x3D; X + epsilon \times sign(\nabla_x L(X,Y)) $$ 其中 epsilon为扰动系数（扰动浓度），一般值比较小；$sign（）$为符号函数，X为输入的样本，Y为对应标签，$L（X,Y）$则为loss函数。 建议在模型设计的时候就考虑到怎样">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2020-04-23T15:41:49.597Z">
+<meta property="article:modified_time" content="2020-04-13T01:34:09.533Z">
+<meta property="article:author" content="John Doe">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png">
+  
+  
+    <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+<meta name="generator" content="Hexo 4.2.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
+        
+        <a id="nav-search-btn" class="nav-icon" title="Search"></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://yoursite.com"></form>
+      </div>
+    </div>
+  </div>
+</header>
+      <div class="outer">
+        <section id="main"><article id="post-resnet构建对抗样本" class="article article-type-post" itemscope itemprop="blogPost">
+  <div class="article-meta">
+    <a href="/2020/04/23/resnet%E6%9E%84%E5%BB%BA%E5%AF%B9%E6%8A%97%E6%A0%B7%E6%9C%AC/" class="article-date">
+  <time datetime="2020-04-23T15:41:49.597Z" itemprop="datePublished">2020-04-23</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="article-title" itemprop="name">
+      resnet构建对抗样本
+    </h1>
+  
+
+      </header>
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <h2 id="tensorflow构建对抗样本遇到的坑—-梯度问题"><a href="#tensorflow构建对抗样本遇到的坑—-梯度问题" class="headerlink" title="tensorflow构建对抗样本遇到的坑—-梯度问题"></a>tensorflow构建对抗样本遇到的坑—-梯度问题</h2><p>在利用梯度生成对抗样本的方式中，其核心思想为：</p>
+<p>$$ X_{pert} = X + epsilon \times sign(\nabla_x L(X,Y)) $$</p>
+<p>其中 epsilon为扰动系数（扰动浓度），一般值比较小；$sign（）$为符号函数，X为输入的样本，Y为对应标签，$L（X,Y）$则为loss函数。</p>
+<p>建议在模型设计的时候就考虑到怎样设计loss，才能使得对x求导比较平滑（比如一般用交叉熵等来作为loss函数）。</p>
+<p>而在利用tensorflow实现的过程中，tf.gradients(Y,X)函数中，要求Y与X必须相关，否则会出现莫名其妙的错误。</p>
+<p>因此不能因为想的简单，而重新再写一个不相关的$loss_1$函数，来对x求导，这样的话，一方面自己新定义的$loss_1$收敛也成了一个问题，同时还容易引起求导不相关的莫名其妙的报错（这个问题迷惑了快一宿，因为这个报错信息并不在调用tf.gradients(Y,X)处，而在之后喂入数据的时候出现错误，以至于前几个小时一直以为是我的session出现了毛病。吃力不讨好）</p>
+<p>此外，注意一下tf.gradients(Y,X)的使用，建议还是用placeholder来传入参数，而在之后再喂入数据进行训练。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://yoursite.com/2020/04/23/resnet%E6%9E%84%E5%BB%BA%E5%AF%B9%E6%8A%97%E6%A0%B7%E6%9C%AC/" data-id="ck9cxqsn80002ecus9med82pk" class="article-share-link">Share</a>
+      
+      
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2020/04/23/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C%E5%A4%8D%E4%B9%A0/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Newer</strong>
+      <div class="article-nav-title">
+        
+          计算机网络复习
+        
+      </div>
+    </a>
+  
+  
+    <a href="/2020/04/23/new-blog/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">new blog</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+
+  
+    
+
+  
+    
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archives</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/04/">April 2020</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Recent Posts</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2020/04/23/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C%E5%A4%8D%E4%B9%A0/">计算机网络复习</a>
+          </li>
+        
+          <li>
+            <a href="/2020/04/23/resnet%E6%9E%84%E5%BB%BA%E5%AF%B9%E6%8A%97%E6%A0%B7%E6%9C%AC/">resnet构建对抗样本</a>
+          </li>
+        
+          <li>
+            <a href="/2020/04/23/new-blog/">new blog</a>
+          </li>
+        
+          <li>
+            <a href="/2020/04/23/hello-world/">Hello World</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      &copy; 2020 John Doe<br>
+      Powered by <a href="http://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+
+
+  
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css">
+
+  
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+  </div>
+</body>
+</html>
